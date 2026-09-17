@@ -186,7 +186,7 @@ function renderAuth() {
     <div class="error" id="error"></div>
     <button class="primary" id="actionBtn">${signup ? 'Create account' : 'Sign in'}</button>
     <button class="linkbtn" id="toggleMode">${signup ? 'Already have an account? Sign in' : 'New here? Create an account'}</button>
-    ${signup ? '<div class="hint">No email, no verification link. Remember your password — there is no reset link.</div>' : ''}
+    ${signup ? '<div class="hint">Remember your password.</div>' : ''}
   </section></main>`;
 
   byId('actionBtn').onclick = signup ? doSignup : doLogin;
