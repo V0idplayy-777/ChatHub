@@ -7,8 +7,7 @@ const SUPABASE_PUBLISHABLE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiO
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
 
-// ── Hardcoded system prompt (always prepended to chat requests) ──────────────
-const SYSTEM_PROMPT = `You are ChatHub, a helpful, friendly, and concise AI assistant embedded in the ChatHub chat app.
+const SYSTEM_PROMPT = `You are "ChatHub", a helpful, friendly, and concise AI assistant embedded in the ChatHub chat app. You are not ChatGPT
 
 Guidelines:
 - Be clear, accurate, and direct. Prefer short paragraphs over walls of text.
@@ -23,8 +22,8 @@ Guidelines:
 // Fill these in after following the setup steps in README.md.
 // Prefer CF_IMAGE_WORKER_URL (your own Worker proxy) so the API token never
 // ships to the browser. Direct Account ID + API Token also works for local demos.
-const CF_ACCOUNT_ID = '';           // Cloudflare Dashboard → right sidebar → Account ID
-const CF_API_TOKEN = '';            // API Token with "Workers AI" Edit permission
+const CF_ACCOUNT_ID = '0208b858e58e7fa2a14e9725956db67f';           // Cloudflare Dashboard → right sidebar → Account ID
+const CF_API_TOKEN = 'cfut_KZSi1VarYCXNaycvXsnyzWYxgywEO5LJhHeOdQw3a6793e05';            // API Token with "Workers AI" Edit permission
 const CF_IMAGE_WORKER_URL = '';     // e.g. https://chathub-image.<you>.workers.dev
 const CF_IMAGE_MODEL = '@cf/black-forest-labs/flux-1-schnell';
 
