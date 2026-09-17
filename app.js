@@ -1,24 +1,307 @@
-const app=document.getElementById('app');
-let token=localStorage.getItem('chathub_token'); let me=null; let chats=[]; let currentId=null; let adminMessages=[];
-const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
-async function api(url,options={}){const headers={'Content-Type':'application/json',...(token?{Authorization:`Bearer ${token}`}:{})};const r=await fetch(url,{...options,headers:{...headers,...(options.headers||{})}});const data=await r.json().catch(()=>({}));if(!r.ok)throw new Error(data.error||'Request failed');return data;}
-function authScreen(mode='login',error=''){const signup=mode==='signup';app.innerHTML=`<main class="login"><section class="card"><div class="brand">ChatHub</div><h1>${signup?'Create your account':'Welcome back'}</h1><p>${signup?'Make an account to save chats and create images.':'Sign in to continue.'}</p>${signup?'<div class="field"><label>Name</label><input id="name" maxlength="40" autocomplete="name"></div>':''}<div class="field"><label>Email</label><input id="email" type="email" autocomplete="email"></div><div class="field"><label>Password</label><input id="password" type="password" autocomplete="current-password"></div><div class="error">${esc(error)}</div><button class="primary" onclick="${signup?'signup()':'login()'}">${signup?'Create account':'Sign in'}</button><button class="linkbtn" onclick="authScreen('${signup?'login':'signup'}')">${signup?'Already have an account? Sign in':'New here? Create an account'}</button><p class="hint">Admin demo: root@chathub.local / admin123</p></section></main>`;}
-async function login(){try{const d=await api('/api/login',{method:'POST',body:JSON.stringify({email:email.value,password:password.value})});token=d.token;localStorage.setItem('chathub_token',token);await boot();}catch(e){authScreen('login',e.message)}}
-async function signup(){try{const d=await api('/api/signup',{method:'POST',body:JSON.stringify({name:name.value,email:email.value,password:password.value})});token=d.token;localStorage.setItem('chathub_token',token);await boot();}catch(e){authScreen('signup',e.message)}}
-async function logout(){try{await api('/api/logout',{method:'POST'})}catch{} localStorage.removeItem('chathub_token');token=null;me=null;authScreen();}
-async function boot(){try{const m=await api('/api/me');me=m.user;await loadChats();render();}catch{localStorage.removeItem('chathub_token');token=null;authScreen();}}
-async function loadChats(){const d=await api('/api/chats');chats=d.chats;if(!chats.length){const x=await api('/api/chats',{method:'POST'});chats=[x.chat]}currentId=currentId||chats[0].id;}
-function render(){app.innerHTML=`<div class="app"><header class="top"><div class="logo">ChatHub</div><div class="spacer"></div><span class="userlabel">${esc(me.name)}</span>${me.admin?'<button class="adminbtn" onclick="adminPanel()">⚙ Admin Panel</button>':''}<button class="logout" onclick="logout()">Log out</button></header><div class="body"><aside class="side"><button class="new" onclick="newChat()">＋ New chat</button><div class="history">${chats.map(c=>`<div class="item ${c.id===currentId?'selected':''}" onclick="selectChat('${c.id}')">${esc(c.title)}</div>`).join('')}</div></aside><main class="main"><div class="msgs" id="msgs"></div><div class="composer"><div class="compose"><textarea id="input" placeholder="Message ChatHub... Ask for an image too" onkeydown="key(event)"></textarea><button class="imageBtn" onclick="makeImage()" title="Create an image">▧</button><button class="send" onclick="send()">↑</button></div><div class="tip">Tip: try “Create an image of a futuristic mountain bike on a moonlit trail.”</div></div></main></div></div>`;update();}
-function update(){const c=chats.find(x=>x.id===currentId)||chats[0];currentId=c.id;msgs.innerHTML=c.messages.length?c.messages.map(m=>`<div class="msg ${m.role}"><div class="av">${m.role==='user'?'You':'AI'}</div><div class="bubble">${esc(m.text)}</div></div>`).join(''):'<div class="welcome"><h1>How can I help?</h1><p>Ask anything, or use ▧ to create a picture.</p></div>';msgs.scrollTop=msgs.scrollHeight;}
-async function newChat(){const d=await api('/api/chats',{method:'POST'});chats.unshift(d.chat);currentId=d.chat.id;render();}
-function selectChat(id){currentId=id;update();}
-function key(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()}}
-async function send(){const text=input.value.trim();if(!text)return;input.value='';const c=chats.find(x=>x.id===currentId);c.messages.push({role:'user',text});if(c.title==='New chat')c.title=text.slice(0,40);update();try{const d=await api(`/api/chats/${currentId}/message`,{method:'POST',body:JSON.stringify({text})});const i=chats.findIndex(x=>x.id===currentId);chats[i]=d.chat;render();}catch(e){c.messages.push({role:'assistant',text:`Error: ${e.message}`});update();}}
-async function makeImage(){const prompt=input.value.trim();if(!prompt){input.focus();return}input.value='';const c=chats.find(x=>x.id===currentId);c.messages.push({role:'user',text:`🎨 Create image: ${prompt}`},{role:'assistant',text:'Creating your image…'});update();try{const d=await api('/api/images',{method:'POST',body:JSON.stringify({prompt})});c.messages.pop();c.messages.push({role:'assistant',text:`🎨 Image created for: ${prompt}`,image:d.image});renderWithImages();}catch(e){c.messages.pop();c.messages.push({role:'assistant',text:`Image error: ${e.message}`});update();}}
-function renderWithImages(){const c=chats.find(x=>x.id===currentId);msgs.innerHTML=c.messages.map(m=>`<div class="msg ${m.role}"><div class="av">${m.role==='user'?'You':'AI'}</div><div class="bubble">${esc(m.text)}${m.image?`<img class="generated" src="${m.image}" alt="Generated image">`:''}</div></div>`).join('');msgs.scrollTop=msgs.scrollHeight;}
-async function adminPanel(){try{const d=await api('/api/admin/users');app.innerHTML=`<div class="app"><header class="top"><div class="logo">ChatHub</div><div class="spacer"></div><strong>ADMIN</strong><button class="back" onclick="render()">Chat</button><button class="back" onclick="adminChat()">Admin Chat</button><button class="logout" onclick="logout()">Log out</button></header><section class="admin"><h1>Admin Panel</h1><p class="small">Manage accounts and administrator access.</p><div class="stats"><div class="stat">Users<h2>${d.users.length}</h2></div><div class="stat">Admins<h2>${d.users.filter(u=>u.admin).length}</h2></div><div class="stat">Banned<h2>${d.users.filter(u=>u.banned).length}</h2></div></div><div class="panel"><h2>Users</h2>${d.users.map(u=>`<div class="userrow"><div><strong>${esc(u.name)}</strong><br><span class="small">${esc(u.email)} · ${u.banned?'BANNED':u.admin?'ADMIN':'User'}</span></div><div class="actions">${u.email!=='root@chathub.local'?`<button class="${u.admin?'demote':'promote'}" onclick="toggleAdmin('${u.id}')">${u.admin?'Remove admin':'Promote admin'}</button><button class="${u.banned?'unban':'ban'}" onclick="toggleBan('${u.id}')">${u.banned?'Unban':'Ban'}</button>`:'<span class="role admin">ROOT ADMIN</span>'}</div></div>`).join('')}</div></section></div>`}catch(e){alert(e.message)}}
-async function toggleAdmin(id){try{await api(`/api/admin/users/${id}/toggle-admin`,{method:'POST'});adminPanel()}catch(e){alert(e.message)}}
-async function toggleBan(id){try{await api(`/api/admin/users/${id}/toggle-ban`,{method:'POST'});adminPanel()}catch(e){alert(e.message)}}
-async function adminChat(){try{const d=await api('/api/admin/messages');adminMessages=d.messages;app.innerHTML=`<div class="app"><header class="top"><div class="logo">ChatHub</div><div class="spacer"></div><strong>ADMIN</strong><button class="back" onclick="adminPanel()">Users</button><button class="back" onclick="render()">Chat</button><button class="logout" onclick="logout()">Log out</button></header><section class="admin"><h1>Admin Chat</h1><div class="panel adminchat"><div class="adminmsgs">${adminMessages.length?adminMessages.map(m=>`<div class="msg"><div class="av">A</div><div class="bubble"><b>${esc(m.name)}</b><br>${esc(m.text)}</div></div>`).join(''):'<p class="small">No messages yet.</p>'}</div><div class="admincompose"><input id="admininput" placeholder="Message the admin team..." onkeydown="if(event.key==='Enter')sendAdmin()"><button class="adminsend" onclick="sendAdmin()">Send</button></div></div></section></div>`}catch(e){alert(e.message)}}
-async function sendAdmin(){const text=admininput.value.trim();if(!text)return;try{await api('/api/admin/messages',{method:'POST',body:JSON.stringify({text})});adminChat()}catch(e){alert(e.message)}}
-if(token)boot();else authScreen();
+const SUPABASE_URL = 'https://YOUR_PROJECT_REF.supabase.co';
+const SUPABASE_PUBLISHABLE_KEY = 'YOUR_SUPABASE_PUBLISHABLE_KEY';
+
+const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
+let me = null;
+let chats = [];
+let currentId = null;
+let adminMessages = [];
+
+function esc(s){
+  return String(s ?? '').replace(/[&<>"']/g, c => ({
+    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+  }[c]));
+}
+
+function authScreen(mode='login', error=''){
+  const signup = mode === 'signup';
+  app.innerHTML = `<main class="login"><section class="card">
+    <div class="brand">ChatHub</div>
+    <h1>${signup?'Create your account':'Welcome back'}</h1>
+    <p>${signup?'Make an account to save chats.':'Sign in to continue.'}</p>
+    ${signup?'<div class="field"><label>Name</label><input id="name" maxlength="40" autocomplete="name"></div>':''}
+    <div class="field"><label>Email</label><input id="email" type="email" autocomplete="email"></div>
+    <div class="field"><label>Password</label><input id="password" type="password" autocomplete="${signup?'new-password':'current-password'}"></div>
+    <div class="error">${esc(error)}</div>
+    <button class="primary" onclick="${signup?'signup()':'login()'}">${signup?'Create account':'Sign in'}</button>
+    <button class="linkbtn" onclick="authScreen('${signup?'login':'signup'}')">${signup?'Already have an account? Sign in':'New here? Create an account'}</button>
+  </section></main>`;
+}
+
+async function login(){
+  try{
+    const email = document.getElementById('email').value.trim();
+    const password = document.getElementById('password').value;
+    const {error} = await supabase.auth.signInWithPassword({email,password});
+    if(error) throw error;
+    await boot();
+  }catch(e){ authScreen('login',e.message); }
+}
+
+async function signup(){
+  try{
+    const name = document.getElementById('name').value.trim();
+    const email = document.getElementById('email').value.trim();
+    const password = document.getElementById('password').value;
+    if(name.length < 2 || name.length > 40) throw new Error('Name must be 2–40 characters.');
+    if(password.length < 6) throw new Error('Password must be at least 6 characters.');
+    const {data,error} = await supabase.auth.signUp({
+      email,
+      password,
+      options:{data:{name}}
+    });
+    if(error) throw error;
+    if(!data.session){
+      authScreen('login','Account created. Check your email to confirm the account, then sign in.');
+      return;
+    }
+    await boot();
+  }catch(e){ authScreen('signup',e.message); }
+}
+
+async function logout(){
+  await supabase.auth.signOut();
+  me=null; chats=[]; currentId=null;
+  authScreen();
+}
+
+async function boot(){
+  const {data:{user}} = await supabase.auth.getUser();
+  if(!user){ authScreen(); return; }
+
+  const {data:profile,error} = await supabase
+    .from('profiles')
+    .select('id,name,email,is_admin,banned')
+    .eq('id',user.id)
+    .single();
+
+  if(error || !profile || profile.banned){
+    await supabase.auth.signOut();
+    authScreen('login', profile?.banned ? 'Your account is banned.' : 'Your profile could not be loaded.');
+    return;
+  }
+
+  me = profile;
+  await loadChats();
+  render();
+}
+
+async function loadChats(){
+  const {data,error} = await supabase
+    .from('chats')
+    .select('id,title,messages,created_at')
+    .eq('user_id',me.id)
+    .order('created_at',{ascending:false});
+
+  if(error) throw error;
+  chats = data || [];
+
+  if(!chats.length){
+    const {data:chat,error:createError} = await supabase
+      .from('chats')
+      .insert({user_id:me.id,title:'New chat',messages:[]})
+      .select('id,title,messages,created_at')
+      .single();
+    if(createError) throw createError;
+    chats=[chat];
+  }
+  currentId = currentId || chats[0].id;
+}
+
+function render(){
+  app.innerHTML = `<div class="app">
+    <header class="top">
+      <div class="logo">ChatHub</div>
+      <div class="spacer"></div>
+      <span class="userlabel">${esc(me.name)}</span>
+      ${me.is_admin?'<button class="adminbtn" onclick="adminPanel()">⚙ Admin Panel</button>':''}
+      <button class="logout" onclick="logout()">Log out</button>
+    </header>
+    <div class="body">
+      <aside class="side">
+        <button class="new" onclick="newChat()">＋ New chat</button>
+        <div class="history">${chats.map(c=>`
+          <div class="item ${c.id===currentId?'selected':''}" onclick="selectChat('${c.id}')">${esc(c.title)}</div>
+        `).join('')}</div>
+      </aside>
+      <main class="main">
+        <div class="msgs" id="msgs"></div>
+        <div class="composer">
+          <div class="compose">
+            <textarea id="input" placeholder="Message ChatHub..." onkeydown="key(event)"></textarea>
+            <button class="send" onclick="send()">↑</button>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>`;
+  update();
+}
+
+function update(){
+  const c = chats.find(x=>x.id===currentId) || chats[0];
+  if(!c) return;
+  currentId = c.id;
+  msgs.innerHTML = c.messages?.length
+    ? c.messages.map(m=>`<div class="msg ${m.role}">
+        <div class="av">${m.role==='user'?'You':'AI'}</div>
+        <div class="bubble">${esc(m.text)}</div>
+      </div>`).join('')
+    : '<div class="welcome"><h1>How can I help?</h1><p>Ask anything.</p></div>';
+  msgs.scrollTop = msgs.scrollHeight;
+}
+
+async function saveChat(chat){
+  const {error} = await supabase
+    .from('chats')
+    .update({title:chat.title,messages:chat.messages})
+    .eq('id',chat.id)
+    .eq('user_id',me.id);
+  if(error) throw error;
+}
+
+async function newChat(){
+  const {data,error} = await supabase
+    .from('chats')
+    .insert({user_id:me.id,title:'New chat',messages:[]})
+    .select('id,title,messages,created_at')
+    .single();
+  if(error) return alert(error.message);
+  chats.unshift(data);
+  currentId=data.id;
+  render();
+}
+
+function selectChat(id){ currentId=id; update(); }
+function key(e){ if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send();} }
+
+async function send(){
+  const text = input.value.trim();
+  if(!text) return;
+  input.value='';
+
+  const c=chats.find(x=>x.id===currentId);
+  c.messages = c.messages || [];
+  c.messages.push({role:'user',text,at:new Date().toISOString()});
+  if(c.title==='New chat') c.title=text.slice(0,40);
+  update();
+
+  const oldSend = input.disabled;
+  input.disabled = true;
+
+  try{
+    const history=c.messages.slice(-20).map(m=>({
+      role:m.role==='assistant'?'assistant':'user',
+      content:m.text
+    }));
+
+    const {data,error} = await supabase.functions.invoke('groq-chat',{
+      body:{messages:history}
+    });
+    if(error) throw error;
+
+    c.messages.push({
+      role:'assistant',
+      text:data.answer || 'I could not generate a response.',
+      at:new Date().toISOString()
+    });
+    await saveChat(c);
+    update();
+  }catch(e){
+    c.messages.push({role:'assistant',text:`Error: ${e.message}`});
+    update();
+  }finally{
+    input.disabled=oldSend;
+    input.focus();
+  }
+}
+
+async function adminPanel(){
+  try{
+    const {data,error}=await supabase
+      .from('profiles')
+      .select('id,name,email,is_admin,banned,created_at')
+      .order('created_at',{ascending:true});
+    if(error) throw error;
+
+    app.innerHTML=`<div class="app">
+      <header class="top">
+        <div class="logo">ChatHub</div><div class="spacer"></div>
+        <strong>ADMIN</strong>
+        <button class="back" onclick="render()">Chat</button>
+        <button class="back" onclick="adminChat()">Admin Chat</button>
+        <button class="logout" onclick="logout()">Log out</button>
+      </header>
+      <section class="admin">
+        <h1>Admin Panel</h1>
+        <p class="small">Manage accounts and administrator access.</p>
+        <div class="stats">
+          <div class="stat">Users<h2>${data.length}</h2></div>
+          <div class="stat">Admins<h2>${data.filter(u=>u.is_admin).length}</h2></div>
+          <div class="stat">Banned<h2>${data.filter(u=>u.banned).length}</h2></div>
+        </div>
+        <div class="panel"><h2>Users</h2>
+          ${data.map(u=>`<div class="userrow">
+            <div><strong>${esc(u.name)}</strong><br><span class="small">${esc(u.email)} · ${u.banned?'BANNED':u.is_admin?'ADMIN':'User'}</span></div>
+            <div class="actions">
+              <button class="${u.is_admin?'demote':'promote'}" onclick="toggleAdmin('${u.id}',${!u.is_admin})">${u.is_admin?'Remove admin':'Promote admin'}</button>
+              <button class="${u.banned?'unban':'ban'}" onclick="toggleBan('${u.id}',${!u.banned})">${u.banned?'Unban':'Ban'}</button>
+            </div>
+          </div>`).join('')}
+        </div>
+      </section>
+    </div>`;
+  }catch(e){ alert(e.message); }
+}
+
+async function toggleAdmin(id,value){
+  const {error}=await supabase.from('profiles').update({is_admin:value}).eq('id',id);
+  if(error) alert(error.message); else adminPanel();
+}
+
+async function toggleBan(id,value){
+  const {error}=await supabase.from('profiles').update({banned:value}).eq('id',id);
+  if(error) alert(error.message); else adminPanel();
+}
+
+async function adminChat(){
+  try{
+    const {data,error}=await supabase
+      .from('admin_messages')
+      .select('id,name,text,created_at')
+      .order('created_at',{ascending:true});
+    if(error) throw error;
+    adminMessages=data||[];
+
+    app.innerHTML=`<div class="app">
+      <header class="top"><div class="logo">ChatHub</div><div class="spacer"></div><strong>ADMIN</strong>
+      <button class="back" onclick="adminPanel()">Users</button><button class="back" onclick="render()">Chat</button>
+      <button class="logout" onclick="logout()">Log out</button></header>
+      <section class="admin"><h1>Admin Chat</h1>
+        <div class="panel adminchat">
+          <div class="adminmsgs">${adminMessages.length?adminMessages.map(m=>`
+            <div class="msg"><div class="av">A</div><div class="bubble"><b>${esc(m.name)}</b><br>${esc(m.text)}</div></div>
+          `).join(''):'<p class="small">No messages yet.</p>'}</div>
+          <div class="admincompose"><input id="admininput" placeholder="Message the admin team..." onkeydown="if(event.key==='Enter')sendAdmin()">
+          <button class="adminsend" onclick="sendAdmin()">Send</button></div>
+        </div>
+      </section>
+    </div>`;
+  }catch(e){alert(e.message);}
+}
+
+async function sendAdmin(){
+  const text=admininput.value.trim();
+  if(!text) return;
+  const {error}=await supabase.from('admin_messages').insert({user_id:me.id,name:me.name,text});
+  if(error) alert(error.message); else adminChat();
+}
+
+supabase.auth.onAuthStateChange((_event,session)=>{
+  if(!session && me) { me=null; chats=[]; currentId=null; authScreen(); }
+});
+
+(async()=>{
+  const {data:{session}}=await supabase.auth.getSession();
+  if(session) await boot(); else authScreen();
+})();
