@@ -529,14 +529,21 @@ function imageConfigError() {
  * Fallback: direct REST call with CF_ACCOUNT_ID + CF_API_TOKEN (demo only).
  */
 async function callCloudflareImage(prompt) {
-  const body = { prompt, num_steps: 4 };
+  // Workers AI validates inputs against each model's strict schema, and the
+  // diffusion-steps field name differs by family: FLUX takes `steps` (max 8),
+  // the Stable Diffusion family takes `num_steps`. Sending the wrong name
+  // fails with error 5006 "Additional or unevaluated properties ... not allowed".
+  const isFlux = /flux|black-forest-labs/i.test(CF_IMAGE_MODEL);
+  const body = isFlux ? { prompt, steps: 4 } : { prompt, num_steps: 4 };
 
   // 1) Proxied Worker (recommended)
   if (CF_IMAGE_WORKER_URL) {
+    const headers = { 'Content-Type': 'application/json' };
+    if (CF_IMAGE_API_KEY) headers['X-API-Key'] = CF_IMAGE_API_KEY;
     const res = await fetch(CF_IMAGE_WORKER_URL.replace(/\/$/, ''), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt })
+      headers,
+      body: JSON.stringify(body)
     });
     if (!res.ok) {
       const errText = await res.text().catch(() => '');

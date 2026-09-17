@@ -100,46 +100,12 @@ Keeps your API token off the public frontend.
    [ai]
    binding = "AI"
    ```
-5. Replace `src/index.js` with:
-
-   ```js
-   export default {
-     async fetch(request, env) {
-       // CORS — allow your ChatHub origin (or * for quick demos)
-       const cors = {
-         'Access-Control-Allow-Origin': '*',
-         'Access-Control-Allow-Methods': 'POST, OPTIONS',
-         'Access-Control-Allow-Headers': 'Content-Type',
-       };
-       if (request.method === 'OPTIONS') {
-         return new Response(null, { headers: cors });
-       }
-       if (request.method !== 'POST') {
-         return new Response('POST only', { status: 405, headers: cors });
-       }
-
-       const { prompt, model, num_steps = 4 } = await request.json();
-       if (!prompt || typeof prompt !== 'string') {
-         return Response.json({ error: 'prompt required' }, { status: 400, headers: cors });
-       }
-
-       const result = await env.AI.run(
-         model || '@cf/black-forest-labs/flux-1-schnell',
-         { prompt, num_steps }
-       );
-
-       // Flux returns { image: "<base64 png>" }
-       if (result && typeof result === 'object' && result.image) {
-         return Response.json({ image: result.image }, { headers: cors });
-       }
-
-       // Some models return raw binary
-       return new Response(result, {
-         headers: { ...cors, 'Content-Type': 'image/png' },
-       });
-     },
-   };
-   ```
+5. Replace `src/index.js` with the Worker in
+   [`worker/src/index.js`](worker/src/index.js) from this repo (it picks the
+   right steps field per model family and retries without optional fields if a
+   model schema changes). A ready-made config is
+   [`worker/wrangler.jsonc`](worker/wrangler.jsonc) — keep the worker `name`
+   matching your deployment so `wrangler deploy` updates it in place.
 
 6. Deploy:
    ```bash
@@ -175,7 +141,14 @@ Exposes the token in the browser — **do not use in production**.
 ### Notes
 
 - Free Workers AI has daily neuron limits; Flux Schnell is cheap (~a few neurons / image).
-- Always pass `num_steps` (4 for Flux Schnell) or the API may return error 1000.
+- Workers AI validates inputs against each model's strict schema
+  (`additionalProperties: false`). The diffusion-steps field name depends on
+  the model family: **FLUX takes `steps`** (integer, max 8, default 4) while
+  the **Stable Diffusion family takes `num_steps`** (max 20). Sending the
+  wrong name fails with error 5006
+  (`Additional or unevaluated properties '/num_steps' at '/' not allowed`).
+  The Worker in `worker/` picks the right name per model and retries with just
+  the prompt if a schema ever rejects the optional field.
 - Generated images are stored as data-URLs in the chat message. Very large images
   may fail to persist to Supabase row size limits — they still show for the session.
 - Change the model with `CF_IMAGE_MODEL` (e.g. `@cf/stabilityai/stable-diffusion-xl-base-1.0`).
