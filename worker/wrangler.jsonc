@@ -1,0 +1,10 @@
+{
+  // Deployed at https://chathub-image.<account>.workers.dev — keep the name
+  // matching the existing deployment so `wrangler deploy` updates it in place.
+  "name": "chathub-image",
+  "main": "src/index.js",
+  "compatibility_date": "2024-09-01",
+  "ai": {
+    "binding": "AI"
+  }
+}
