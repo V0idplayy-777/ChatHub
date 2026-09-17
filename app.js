@@ -1,5 +1,16 @@
 const app = document.getElementById('app');
 
+app.innerHTML = `<main class="login"><section class="card">
+  <div class="brand">ChatHub</div>
+  <h1>Welcome back</h1>
+  <p>Sign in to continue.</p>
+  <div class="field"><label>Email</label><input id="email" type="email" autocomplete="email"></div>
+  <div class="field"><label>Password</label><input id="password" type="password" autocomplete="current-password"></div>
+  <div class="error" id="error"></div>
+  <button class="primary" id="loginBtn">Sign in</button>
+  <button class="linkbtn" id="toSignup">New here? Create an account</button>
+</section></main>`;
+
 const SUPABASE_URL = 'https://uvzcejnzaiiomqppeqcr.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV2emNlam56YWlpb21xcHBlcWNyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc4MTI2NTcsImV4cCI6MjEwMzM4ODY1N30.0e1xFT3aEnH7akjL2MvKmamgC-9vwE-45bkY1Q5B95U';
 
@@ -8,14 +19,14 @@ let me = null;
 let groups = [];
 let currentId = null;
 let adminMessages = [];
+let mode = 'login';
 
-function esc(s) {
-  return String(s ?? '').replace(/[&<>"']/g, c => ({
-    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-  }[c]));
+function showError(msg) {
+  const el = document.getElementById('error');
+  if (el) el.textContent = msg || '';
 }
 
-function authScreen(mode = 'login', error = '') {
+function renderAuth() {
   const signup = mode === 'signup';
   app.innerHTML = `<main class="login"><section class="card">
     <div class="brand">ChatHub</div>
@@ -24,28 +35,40 @@ function authScreen(mode = 'login', error = '') {
     ${signup ? '<div class="field"><label>Name</label><input id="name" maxlength="40" autocomplete="name"></div>' : ''}
     <div class="field"><label>Email</label><input id="email" type="email" autocomplete="email"></div>
     <div class="field"><label>Password</label><input id="password" type="password" autocomplete="${signup ? 'new-password' : 'current-password'}"></div>
-    <div class="error">${esc(error)}</div>
-    <button class="primary" onclick="${signup ? 'signup()' : 'login()'}">${signup ? 'Create account' : 'Sign in'}</button>
-    <button class="linkbtn" onclick="authScreen('${signup ? 'login' : 'signup'}')">${signup ? 'Already have an account? Sign in' : 'New here? Create an account'}</button>
+    <div class="error" id="error"></div>
+    <button class="primary" id="actionBtn">${signup ? 'Create account' : 'Sign in'}</button>
+    <button class="linkbtn" id="toggleMode">${signup ? 'Already have an account? Sign in' : 'New here? Create an account'}</button>
   </section></main>`;
+
+  document.getElementById('actionBtn').onclick = signup ? doSignup : doLogin;
+  document.getElementById('toggleMode').onclick = () => {
+    mode = signup ? 'login' : 'signup';
+    renderAuth();
+  };
 }
 
-async function login() {
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[c]));
+}
+
+async function doLogin() {
   try {
-    if (!supabase) throw new Error('Supabase failed to load.');
+    if (!supabase) throw new Error('Supabase is not ready');
     const email = document.getElementById('email').value.trim();
     const password = document.getElementById('password').value;
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) throw error;
     await boot();
   } catch (e) {
-    authScreen('login', e.message);
+    showError(e.message);
   }
 }
 
-async function signup() {
+async function doSignup() {
   try {
-    if (!supabase) throw new Error('Supabase failed to load.');
+    if (!supabase) throw new Error('Supabase is not ready');
     const name = document.getElementById('name').value.trim();
     const email = document.getElementById('email').value.trim();
     const password = document.getElementById('password').value;
@@ -58,12 +81,14 @@ async function signup() {
     });
     if (error) throw error;
     if (!data.session) {
-      authScreen('login', 'Account created. Check your email to confirm the account, then sign in.');
+      mode = 'login';
+      renderAuth();
+      showError('Account created. Check your email to confirm, then sign in.');
       return;
     }
     await boot();
   } catch (e) {
-    authScreen('signup', e.message);
+    showError(e.message);
   }
 }
 
@@ -72,13 +97,14 @@ async function logout() {
   me = null;
   groups = [];
   currentId = null;
-  authScreen();
+  mode = 'login';
+  renderAuth();
 }
 
 async function boot() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) {
-    authScreen();
+    renderAuth();
     return;
   }
 
@@ -90,7 +116,9 @@ async function boot() {
 
   if (error || !profile || profile.banned) {
     await supabase.auth.signOut();
-    authScreen('login', profile?.banned ? 'Your account is banned.' : 'Your profile could not be loaded.');
+    mode = 'login';
+    renderAuth();
+    showError(profile?.banned ? 'Your account is banned.' : 'Your profile could not be loaded.');
     return;
   }
 
@@ -127,27 +155,49 @@ function render() {
       <div class="logo">ChatHub</div>
       <div class="spacer"></div>
       <span class="userlabel">${esc(me.name)}</span>
-      ${me.is_admin ? '<button class="adminbtn" onclick="adminPanel()">⚙ Admin Panel</button>' : ''}
-      <button class="logout" onclick="logout()">Log out</button>
+      ${me.is_admin ? '<button class="adminbtn" id="adminBtn">⚙ Admin Panel</button>' : ''}
+      <button class="logout" id="logoutBtn">Log out</button>
     </header>
     <div class="body">
       <aside class="side">
-        <button class="new" onclick="newChat()">＋ New chat</button>
-        <div class="history">${groups.map(c => `
-          <div class="item ${c.id === currentId ? 'selected' : ''}" onclick="selectChat('${c.id}')">${esc(c.title)}</div>
-        `).join('')}</div>
+        <button class="new" id="newChatBtn">＋ New chat</button>
+        <div class="history" id="history"></div>
       </aside>
       <main class="main">
         <div class="msgs" id="msgs"></div>
         <div class="composer">
           <div class="compose">
-            <textarea id="input" placeholder="Message ChatHub..." onkeydown="key(event)"></textarea>
-            <button class="send" onclick="send()">↑</button>
+            <textarea id="input" placeholder="Message ChatHub..."></textarea>
+            <button class="send" id="sendBtn">↑</button>
           </div>
         </div>
       </main>
     </div>
   </div>`;
+
+  document.getElementById('logoutBtn').onclick = logout;
+  if (me.is_admin) document.getElementById('adminBtn').onclick = adminPanel;
+  document.getElementById('newChatBtn').onclick = newChat;
+  document.getElementById('sendBtn').onclick = send;
+  document.getElementById('input').onkeydown = e => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      send();
+    }
+  };
+
+  const history = document.getElementById('history');
+  history.innerHTML = groups.map(c =>
+    `<div class="item ${c.id === currentId ? 'selected' : ''}" data-id="${c.id}">${esc(c.title)}</div>`
+  ).join('');
+  history.querySelectorAll('.item').forEach(el => {
+    el.onclick = () => {
+      currentId = el.dataset.id;
+      update();
+      history.querySelectorAll('.item').forEach(i => i.classList.toggle('selected', i.dataset.id === currentId));
+    };
+  });
+
   update();
 }
 
@@ -185,18 +235,6 @@ async function newChat() {
   groups.unshift(data);
   currentId = data.id;
   render();
-}
-
-function selectChat(id) {
-  currentId = id;
-  update();
-}
-
-function key(e) {
-  if (e.key === 'Enter' && !e.shiftKey) {
-    e.preventDefault();
-    send();
-  }
 }
 
 async function send() {
@@ -250,9 +288,9 @@ async function adminPanel() {
 
     app.innerHTML = `<div class="app">
       <header class="top"><div class="logo">ChatHub</div><div class="spacer"></div><strong>ADMIN</strong>
-      <button class="back" onclick="adminChat()">Admin Chat</button>
-      <button class="back" onclick="render()">Chat</button>
-      <button class="logout" onclick="logout()">Log out</button></header>
+      <button class="back" id="toAdminChat">Admin Chat</button>
+      <button class="back" id="toChat">Chat</button>
+      <button class="logout" id="logoutBtn">Log out</button></header>
       <section class="admin"><h1>Users</h1>
         <div class="panel">
           ${(data || []).map(u => `
@@ -262,13 +300,24 @@ async function adminPanel() {
               <div class="small">${esc(u.email)} · ${u.banned ? 'BANNED' : ''}</div>
             </div>
             <div class="actions">
-              <button class="${u.is_admin ? 'demote' : 'promote'}" onclick="toggleAdmin('${u.id}',${!u.is_admin})">${u.is_admin ? 'Remove admin' : 'Promote admin'}</button>
-              <button class="${u.banned ? 'unban' : 'ban'}" onclick="toggleBan('${u.id}',${!u.banned})">${u.banned ? 'Unban' : 'Ban'}</button>
+              <button class="${u.is_admin ? 'demote' : 'promote'}" data-id="${u.id}" data-admin="${!u.is_admin}">${u.is_admin ? 'Remove admin' : 'Promote admin'}</button>
+              <button class="${u.banned ? 'unban' : 'ban'}" data-id="${u.id}" data-ban="${!u.banned}">${u.banned ? 'Unban' : 'Ban'}</button>
             </div>
           </div>`).join('')}
         </div>
       </section>
     </div>`;
+
+    document.getElementById('logoutBtn').onclick = logout;
+    document.getElementById('toChat').onclick = render;
+    document.getElementById('toAdminChat').onclick = adminChat;
+
+    document.querySelectorAll('[data-admin]').forEach(btn => {
+      btn.onclick = () => toggleAdmin(btn.dataset.id, btn.dataset.admin === 'true');
+    });
+    document.querySelectorAll('[data-ban]').forEach(btn => {
+      btn.onclick = () => toggleBan(btn.dataset.id, btn.dataset.ban === 'true');
+    });
   } catch (e) {
     alert(e.message);
   }
@@ -297,18 +346,29 @@ async function adminChat() {
 
     app.innerHTML = `<div class="app">
       <header class="top"><div class="logo">ChatHub</div><div class="spacer"></div><strong>ADMIN</strong>
-      <button class="back" onclick="adminPanel()">Users</button><button class="back" onclick="render()">Chat</button>
-      <button class="logout" onclick="logout()">Log out</button></header>
+      <button class="back" id="toUsers">Users</button>
+      <button class="back" id="toChat">Chat</button>
+      <button class="logout" id="logoutBtn">Log out</button></header>
       <section class="admin"><h1>Admin Chat</h1>
         <div class="panel adminchat">
           <div class="adminmsgs">${adminMessages.length ? adminMessages.map(m => `
             <div class="msg"><div class="av">A</div><div class="bubble"><b>${esc(m.name)}</b><br>${esc(m.text)}</div></div>
           `).join('') : '<p class="small">No messages yet.</p>'}</div>
-          <div class="admincompose"><input id="admininput" placeholder="Message the admin team..." onkeydown="if(event.key==='Enter')sendAdmin()">
-          <button class="adminsend" onclick="sendAdmin()">Send</button></div>
+          <div class="admincompose">
+            <input id="admininput" placeholder="Message the admin team...">
+            <button class="adminsend" id="adminSend">Send</button>
+          </div>
         </div>
       </section>
     </div>`;
+
+    document.getElementById('logoutBtn').onclick = logout;
+    document.getElementById('toUsers').onclick = adminPanel;
+    document.getElementById('toChat').onclick = render;
+    document.getElementById('adminSend').onclick = sendAdmin;
+    document.getElementById('admininput').onkeydown = e => {
+      if (e.key === 'Enter') sendAdmin();
+    };
   } catch (e) {
     alert(e.message);
   }
@@ -323,39 +383,36 @@ async function sendAdmin() {
   else adminChat();
 }
 
-function start() {
-  app.textContent = 'Starting…';
+// Immediately show the login form (no dependency on Supabase)
+renderAuth();
 
-  if (!window.supabase) {
-    authScreen('login', 'Supabase library failed to load. Check network or CDN.');
-    return;
-  }
-
+// Try to connect to Supabase after the UI is already visible
+if (window.supabase) {
   try {
     supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
+
+    supabase.auth.onAuthStateChange((_event, session) => {
+      if (!session && me) {
+        me = null;
+        groups = [];
+        currentId = null;
+        mode = 'login';
+        renderAuth();
+      }
+    });
+
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) boot().catch(e => {
+        mode = 'login';
+        renderAuth();
+        showError(e.message);
+      });
+    }).catch(e => {
+      showError(e.message);
+    });
   } catch (e) {
-    authScreen('login', 'Could not create Supabase client: ' + e.message);
-    return;
+    showError('Supabase client error: ' + e.message);
   }
-
-  supabase.auth.onAuthStateChange((_event, session) => {
-    if (!session && me) {
-      me = null;
-      groups = [];
-      currentId = null;
-      authScreen();
-    }
-  });
-
-  (async () => {
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session) await boot();
-      else authScreen();
-    } catch (e) {
-      authScreen('login', e.message || 'Failed to start.');
-    }
-  })();
+} else {
+  showError('Supabase library failed to load from CDN.');
 }
-
-start();
