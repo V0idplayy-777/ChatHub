@@ -1,9 +1,9 @@
-const SUPABASE_URL = 'https://YOUR_PROJECT_REF.supabase.co';
-const SUPABASE_PUBLISHABLE_KEY = 'YOUR_SUPABASE_PUBLISHABLE_KEY';
+const SUPABASE_URL = 'https://uvzcejnzaiiomqppeqcr.supabase.co';
+const SUPABASE_PUBLISHABLE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV2emNlam56YWlpb21xcHBlcWNyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc4MTI2NTcsImV4cCI6MjEwMzM4ODY1N30.0e1xFT3aEnH7akjL2MvKmamgC-9vwE-45bkY1Q5B95U';
 
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
 let me = null;
-let chats = [];
+let groups = [];
 let currentId = null;
 let adminMessages = [];
 
@@ -18,7 +18,7 @@ function authScreen(mode='login', error=''){
   app.innerHTML = `<main class="login"><section class="card">
     <div class="brand">ChatHub</div>
     <h1>${signup?'Create your account':'Welcome back'}</h1>
-    <p>${signup?'Make an account to save chats.':'Sign in to continue.'}</p>
+    <p>${signup?'Make an account to save groups.':'Sign in to continue.'}</p>
     ${signup?'<div class="field"><label>Name</label><input id="name" maxlength="40" autocomplete="name"></div>':''}
     <div class="field"><label>Email</label><input id="email" type="email" autocomplete="email"></div>
     <div class="field"><label>Password</label><input id="password" type="password" autocomplete="${signup?'new-password':'current-password'}"></div>
@@ -61,7 +61,7 @@ async function signup(){
 
 async function logout(){
   await supabase.auth.signOut();
-  me=null; chats=[]; currentId=null;
+  me=null; groups=[]; currentId=null;
   authScreen();
 }
 
@@ -70,7 +70,7 @@ async function boot(){
   if(!user){ authScreen(); return; }
 
   const {data:profile,error} = await supabase
-    .from('profiles')
+    .from('accounts')
     .select('id,name,email,is_admin,banned')
     .eq('id',user.id)
     .single();
@@ -82,30 +82,30 @@ async function boot(){
   }
 
   me = profile;
-  await loadChats();
+  await loadgroups();
   render();
 }
 
-async function loadChats(){
+async function loadgroups(){
   const {data,error} = await supabase
-    .from('chats')
+    .from('groups')
     .select('id,title,messages,created_at')
     .eq('user_id',me.id)
     .order('created_at',{ascending:false});
 
   if(error) throw error;
-  chats = data || [];
+  groups = data || [];
 
-  if(!chats.length){
+  if(!groups.length){
     const {data:chat,error:createError} = await supabase
-      .from('chats')
+      .from('groups')
       .insert({user_id:me.id,title:'New chat',messages:[]})
       .select('id,title,messages,created_at')
       .single();
     if(createError) throw createError;
-    chats=[chat];
+    groups=[chat];
   }
-  currentId = currentId || chats[0].id;
+  currentId = currentId || groups[0].id;
 }
 
 function render(){
@@ -120,7 +120,7 @@ function render(){
     <div class="body">
       <aside class="side">
         <button class="new" onclick="newChat()">＋ New chat</button>
-        <div class="history">${chats.map(c=>`
+        <div class="history">${groups.map(c=>`
           <div class="item ${c.id===currentId?'selected':''}" onclick="selectChat('${c.id}')">${esc(c.title)}</div>
         `).join('')}</div>
       </aside>
@@ -139,7 +139,7 @@ function render(){
 }
 
 function update(){
-  const c = chats.find(x=>x.id===currentId) || chats[0];
+  const c = groups.find(x=>x.id===currentId) || groups[0];
   if(!c) return;
   currentId = c.id;
   msgs.innerHTML = c.messages?.length
@@ -153,7 +153,7 @@ function update(){
 
 async function saveChat(chat){
   const {error} = await supabase
-    .from('chats')
+    .from('groups')
     .update({title:chat.title,messages:chat.messages})
     .eq('id',chat.id)
     .eq('user_id',me.id);
@@ -162,12 +162,12 @@ async function saveChat(chat){
 
 async function newChat(){
   const {data,error} = await supabase
-    .from('chats')
+    .from('groups')
     .insert({user_id:me.id,title:'New chat',messages:[]})
     .select('id,title,messages,created_at')
     .single();
   if(error) return alert(error.message);
-  chats.unshift(data);
+  groups.unshift(data);
   currentId=data.id;
   render();
 }
@@ -180,7 +180,7 @@ async function send(){
   if(!text) return;
   input.value='';
 
-  const c=chats.find(x=>x.id===currentId);
+  const c=groups.find(x=>x.id===currentId);
   c.messages = c.messages || [];
   c.messages.push({role:'user',text,at:new Date().toISOString()});
   if(c.title==='New chat') c.title=text.slice(0,40);
@@ -219,7 +219,7 @@ async function send(){
 async function adminPanel(){
   try{
     const {data,error}=await supabase
-      .from('profiles')
+      .from('accounts')
       .select('id,name,email,is_admin,banned,created_at')
       .order('created_at',{ascending:true});
     if(error) throw error;
@@ -255,12 +255,12 @@ async function adminPanel(){
 }
 
 async function toggleAdmin(id,value){
-  const {error}=await supabase.from('profiles').update({is_admin:value}).eq('id',id);
+  const {error}=await supabase.from('accounts').update({is_admin:value}).eq('id',id);
   if(error) alert(error.message); else adminPanel();
 }
 
 async function toggleBan(id,value){
-  const {error}=await supabase.from('profiles').update({banned:value}).eq('id',id);
+  const {error}=await supabase.from('accounts').update({banned:value}).eq('id',id);
   if(error) alert(error.message); else adminPanel();
 }
 
@@ -298,7 +298,7 @@ async function sendAdmin(){
 }
 
 supabase.auth.onAuthStateChange((_event,session)=>{
-  if(!session && me) { me=null; chats=[]; currentId=null; authScreen(); }
+  if(!session && me) { me=null; groups=[]; currentId=null; authScreen(); }
 });
 
 (async()=>{
