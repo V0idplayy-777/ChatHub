@@ -22,9 +22,11 @@ Guidelines:
 // Fill these in after following the setup steps in README.md.
 // Prefer CF_IMAGE_WORKER_URL (your own Worker proxy) so the API token never
 // ships to the browser. Direct Account ID + API Token also works for local demos.
-const CF_ACCOUNT_ID = '0208b858e58e7fa2a14e9725956db67f';           // Cloudflare Dashboard → right sidebar → Account ID
-const CF_API_TOKEN = 'cfut_KZSi1VarYCXNaycvXsnyzWYxgywEO5LJhHeOdQw3a6793e05';            // API Token with "Workers AI" Edit permission
-const CF_IMAGE_WORKER_URL = '';     // e.g. https://chathub-image.<you>.workers.dev
+
+const CF_ACCOUNT_ID = '0208b858e58e7fa2a14e9725956db67f';
+const CF_API_TOKEN = 'cfut_KZSi1VarYCXNaycvXsnyzWYxgywEO5LJhHeOdQw3a6793e05';
+const CF_IMAGE_WORKER_URL = 'https://chathub-image.nburfootfowke.workers.dev/'; // ← your URL from step D
+const CF_IMAGE_API_KEY = ''; // only if you created IMAGE_API_KEY secret
 const CF_IMAGE_MODEL = '@cf/black-forest-labs/flux-1-schnell';
 
 // Lucide icon SVGs (sun / moon / image) — https://lucide.dev
