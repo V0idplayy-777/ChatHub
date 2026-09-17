@@ -536,7 +536,7 @@ async function callCloudflareImage(prompt) {
     const res = await fetch(CF_IMAGE_WORKER_URL.replace(/\/$/, ''), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt, model: CF_IMAGE_MODEL, num_steps: 4 })
+      body: JSON.stringify({ prompt })
     });
     if (!res.ok) {
       const errText = await res.text().catch(() => '');
