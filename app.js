@@ -13,9 +13,99 @@ let currentId = null;
 let adminMessages = [];
 let mode = 'login';
 
+// Accounts are username + password only — no email address is ever collected,
+// shown or mailed. Supabase Auth still needs an email-shaped identifier, so we
+// derive a private one from the username. That domain is not a real mailbox and
+// nothing is ever sent to it (email confirmation must stay OFF in the project).
+const USERNAME_DOMAIN = 'chathub.local';
+
 function showError(msg) {
   const el = document.getElementById('error');
   if (el) el.textContent = msg || '';
+}
+
+function byId(id) {
+  return document.getElementById(id);
+}
+
+function normalizeUsername(raw) {
+  return String(raw ?? '').trim().toLowerCase().replace(/^@/, '');
+}
+
+function validateUsername(username) {
+  if (username.length < 3 || username.length > 20) return 'Username must be 3–20 characters.';
+  if (!/^[a-z0-9_.]+$/.test(username)) return 'Username can only use letters, numbers, dots and underscores.';
+  if (!/^[a-z0-9]/.test(username) || !/[a-z0-9]$/.test(username)) return 'Username must start and end with a letter or number.';
+  if (username.includes('..')) return 'Username cannot contain two dots in a row.';
+  return null;
+}
+
+function usernameToEmail(username) {
+  return `${username}@${USERNAME_DOMAIN}`;
+}
+
+// "kai@chathub.local" -> "kai"; a legacy real address is returned untouched.
+function handleFromEmail(email) {
+  const value = String(email ?? '').trim().toLowerCase();
+  const suffix = `@${USERNAME_DOMAIN}`;
+  return value.endsWith(suffix) ? value.slice(0, -suffix.length) : value;
+}
+
+// Names written before this change (or by a DB trigger that copies the auth
+// email) can hold an address instead of a username — never show one.
+function displayLabel(name, username) {
+  const value = String(name ?? '').trim();
+  return !value || value.includes('@') ? username : value;
+}
+
+function friendlyAuthError(error) {
+  const msg = String(error?.message || '').toLowerCase();
+  const code = String(error?.code || '');
+  if (code === 'user_already_exists' || msg.includes('already registered') || msg.includes('already been registered')) {
+    return new Error('That username is already taken. Try another one.');
+  }
+  if (msg.includes('invalid login credentials') || msg.includes('email not confirmed') || msg.includes('user not found')) {
+    return new Error('Wrong username or password.');
+  }
+  if (msg.includes('password should be at least')) {
+    return new Error('Password must be at least 6 characters.');
+  }
+  if (msg.includes('rate limit') || msg.includes('too many requests')) {
+    return new Error('Too many attempts. Wait a minute and try again.');
+  }
+  if (msg.includes('unable to validate email') || msg.includes('invalid email')) {
+    return new Error('That username is not valid.');
+  }
+  return error instanceof Error ? error : new Error(error?.message || 'Something went wrong.');
+}
+
+// Username sign-up only works while email confirmation is disabled on the
+// project. Check first so we fail with a clear message instead of silently
+// creating an unconfirmed account nobody can ever sign in to. A positive answer
+// is cached; a negative one is re-checked so the very next attempt succeeds
+// after the switch is flipped, with no page reload needed.
+let autoConfirmOk = false;
+async function requireAutoConfirm() {
+  if (autoConfirmOk) return;
+  let confirmedOff = null;
+  try {
+    const res = await fetch(`${SUPABASE_URL}/auth/v1/settings`, {
+      headers: { apikey: SUPABASE_PUBLISHABLE_KEY }
+    });
+    if (res.ok) {
+      const settings = await res.json();
+      if (typeof settings.mailer_autoconfirm === 'boolean') confirmedOff = settings.mailer_autoconfirm;
+    }
+  } catch (_) {
+    // Settings unreachable (offline / CORS): fall through and let signUp decide.
+  }
+  if (confirmedOff === true) {
+    autoConfirmOk = true;
+    return;
+  }
+  if (confirmedOff === false) {
+    throw new Error('Username sign-up is not switched on yet: in Supabase, go to Authentication → Sign In / Providers → Email and turn "Confirm email" OFF.');
+  }
 }
 
 function renderAuth() {
@@ -23,20 +113,40 @@ function renderAuth() {
   app.innerHTML = `<main class="login"><section class="card">
     <div class="brand">ChatHub</div>
     <h1>${signup ? 'Create your account' : 'Welcome back'}</h1>
-    <p>${signup ? 'Make an account to save groups.' : 'Sign in to continue.'}</p>
-    ${signup ? '<div class="field"><label>Name</label><input id="name" maxlength="40" autocomplete="name"></div>' : ''}
-    <div class="field"><label>Email</label><input id="email" type="email" autocomplete="email"></div>
-    <div class="field"><label>Password</label><input id="password" type="password" autocomplete="${signup ? 'new-password' : 'current-password'}"></div>
+    <p>${signup ? 'Pick a username and password — no email needed.' : 'Sign in with your username.'}</p>
+    <div class="field"><label for="username">Username</label><input id="username" maxlength="20" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="${signup ? 'e.g. kai_99' : 'your username'}"></div>
+    <div class="field"><label for="password">Password</label><input id="password" type="password" autocomplete="${signup ? 'new-password' : 'current-password'}" placeholder="${signup ? 'At least 6 characters' : '••••••••'}"></div>
     <div class="error" id="error"></div>
     <button class="primary" id="actionBtn">${signup ? 'Create account' : 'Sign in'}</button>
     <button class="linkbtn" id="toggleMode">${signup ? 'Already have an account? Sign in' : 'New here? Create an account'}</button>
+    ${signup ? '<div class="hint">No email, no verification link. Remember your password — there is no reset link.</div>' : ''}
   </section></main>`;
 
-  document.getElementById('actionBtn').onclick = signup ? doSignup : doLogin;
-  document.getElementById('toggleMode').onclick = () => {
+  byId('actionBtn').onclick = signup ? doSignup : doLogin;
+  byId('toggleMode').onclick = () => {
     mode = signup ? 'login' : 'signup';
     renderAuth();
   };
+  [byId('username'), byId('password')].forEach(input => {
+    input.onkeydown = e => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        (signup ? doSignup : doLogin)();
+      }
+    };
+  });
+  byId('username').focus();
+}
+
+function setBusy(button, busy, busyLabel) {
+  if (!button) return;
+  button.disabled = busy;
+  if (busy) {
+    button.dataset.label = button.textContent;
+    button.textContent = busyLabel || 'Working…';
+  } else if (button.dataset.label) {
+    button.textContent = button.dataset.label;
+  }
 }
 
 function esc(s) {
@@ -46,39 +156,61 @@ function esc(s) {
 }
 
 async function doLogin() {
+  const button = byId('actionBtn');
   try {
-    const email = document.getElementById('email').value.trim();
-    const password = document.getElementById('password').value;
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) throw error;
+    const raw = byId('username').value.trim();
+    const password = byId('password').value;
+    if (!raw) throw new Error('Enter your username.');
+    if (!password) throw new Error('Enter your password.');
+
+    // Accounts created before the switch to usernames used a real email address,
+    // so accept either form on sign-in.
+    const identifier = raw.includes('@') ? raw.toLowerCase() : usernameToEmail(normalizeUsername(raw));
+
+    setBusy(button, true, 'Signing in…');
+    const { error } = await supabase.auth.signInWithPassword({ email: identifier, password });
+    if (error) throw friendlyAuthError(error);
     await boot();
   } catch (e) {
     showError(e.message);
+  } finally {
+    setBusy(button, false);
   }
 }
 
 async function doSignup() {
+  const button = byId('actionBtn');
   try {
-    const name = document.getElementById('name').value.trim();
-    const email = document.getElementById('email').value.trim();
-    const password = document.getElementById('password').value;
-    if (name.length < 2 || name.length > 40) throw new Error('Name must be 2–40 characters.');
+    const username = normalizeUsername(byId('username').value);
+    const password = byId('password').value;
+
+    const problem = validateUsername(username);
+    if (problem) throw new Error(problem);
     if (password.length < 6) throw new Error('Password must be at least 6 characters.');
+
+    setBusy(button, true, 'Creating account…');
+    await requireAutoConfirm();
+
     const { data, error } = await supabase.auth.signUp({
-      email,
+      email: usernameToEmail(username),
       password,
-      options: { data: { name } }
+      options: { data: { name: username, username } }
     });
-    if (error) throw error;
+    if (error) throw friendlyAuthError(error);
+
     if (!data.session) {
+      // Only reachable if email confirmation is still enabled on the project.
       mode = 'login';
       renderAuth();
-      showError('Account created. Check your email to confirm, then sign in.');
+      showError('That username is still waiting on email confirmation. Turn "Confirm email" OFF in Supabase (Authentication → Sign In / Providers → Email) and sign up again.');
       return;
     }
+
     await boot();
   } catch (e) {
     showError(e.message);
+  } finally {
+    setBusy(button, false);
   }
 }
 
@@ -113,7 +245,18 @@ async function boot() {
       return;
     }
 
-    me = profile;
+    const handle = handleFromEmail(profile.email);
+    const legacy = handle.includes('@'); // pre-username account, created with a real email
+    const username = legacy
+      ? normalizeUsername(profile.name || handle.split('@')[0])
+      : handle;
+
+    me = {
+      ...profile,
+      username,
+      legacy,
+      name: displayLabel(profile.name, username)
+    };
     await loadgroups();
     render();
   } catch (e) {
@@ -150,7 +293,7 @@ function render() {
     <header class="top">
       <div class="logo">ChatHub</div>
       <div class="spacer"></div>
-      <span class="userlabel">${esc(me.name)}</span>
+      <span class="userlabel">${me.legacy ? esc(me.name) : '@' + esc(me.username)}</span>
       ${me.is_admin ? '<button class="adminbtn" id="adminBtn">⚙ Admin Panel</button>' : ''}
       <button class="logout" id="logoutBtn">Log out</button>
     </header>
@@ -289,17 +432,20 @@ async function adminPanel() {
       <button class="logout" id="logoutBtn">Log out</button></header>
       <section class="admin"><h1>Users</h1>
         <div class="panel">
-          ${(data || []).map(u => `
+          ${(data || []).map(u => {
+            const handle = handleFromEmail(u.email);
+            return `
           <div class="userrow">
             <div>
-              <b>${esc(u.name)}</b> <span class="role ${u.is_admin ? 'admin' : ''}">${u.is_admin ? 'admin' : 'user'}</span>
-              <div class="small">${esc(u.email)} · ${u.banned ? 'BANNED' : ''}</div>
+              <b>${esc(displayLabel(u.name, handle))}</b> <span class="role ${u.is_admin ? 'admin' : ''}">${u.is_admin ? 'admin' : 'user'}</span>
+              <div class="small">${handle.includes('@') ? esc(handle) : '@' + esc(handle)}${u.banned ? ' · BANNED' : ''}</div>
             </div>
             <div class="actions">
               <button class="${u.is_admin ? 'demote' : 'promote'}" data-id="${u.id}" data-admin="${!u.is_admin}">${u.is_admin ? 'Remove admin' : 'Promote admin'}</button>
               <button class="${u.banned ? 'unban' : 'ban'}" data-id="${u.id}" data-ban="${!u.banned}">${u.banned ? 'Unban' : 'Ban'}</button>
             </div>
-          </div>`).join('')}
+          </div>`;
+          }).join('')}
         </div>
       </section>
     </div>`;
