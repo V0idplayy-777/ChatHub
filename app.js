@@ -1,20 +1,12 @@
-const app = document.getElementById('app');
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.116.0';
 
-app.innerHTML = `<main class="login"><section class="card">
-  <div class="brand">ChatHub</div>
-  <h1>Welcome back</h1>
-  <p>Sign in to continue.</p>
-  <div class="field"><label>Email</label><input id="email" type="email" autocomplete="email"></div>
-  <div class="field"><label>Password</label><input id="password" type="password" autocomplete="current-password"></div>
-  <div class="error" id="error"></div>
-  <button class="primary" id="loginBtn">Sign in</button>
-  <button class="linkbtn" id="toSignup">New here? Create an account</button>
-</section></main>`;
+const app = document.getElementById('app');
 
 const SUPABASE_URL = 'https://uvzcejnzaiiomqppeqcr.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV2emNlam56YWlpb21xcHBlcWNyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc4MTI2NTcsImV4cCI6MjEwMzM4ODY1N30.0e1xFT3aEnH7akjL2MvKmamgC-9vwE-45bkY1Q5B95U';
 
-let supabase = null;
+const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
+
 let me = null;
 let groups = [];
 let currentId = null;
@@ -55,7 +47,6 @@ function esc(s) {
 
 async function doLogin() {
   try {
-    if (!supabase) throw new Error('Supabase is not ready');
     const email = document.getElementById('email').value.trim();
     const password = document.getElementById('password').value;
     const { error } = await supabase.auth.signInWithPassword({ email, password });
@@ -68,7 +59,6 @@ async function doLogin() {
 
 async function doSignup() {
   try {
-    if (!supabase) throw new Error('Supabase is not ready');
     const name = document.getElementById('name').value.trim();
     const email = document.getElementById('email').value.trim();
     const password = document.getElementById('password').value;
@@ -93,7 +83,7 @@ async function doSignup() {
 }
 
 async function logout() {
-  if (supabase) await supabase.auth.signOut();
+  await supabase.auth.signOut();
   me = null;
   groups = [];
   currentId = null;
@@ -102,29 +92,35 @@ async function logout() {
 }
 
 async function boot() {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) {
-    renderAuth();
-    return;
-  }
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      renderAuth();
+      return;
+    }
 
-  const { data: profile, error } = await supabase
-    .from('accounts')
-    .select('id,name,email,is_admin,banned')
-    .eq('id', user.id)
-    .single();
+    const { data: profile, error } = await supabase
+      .from('accounts')
+      .select('id,name,email,is_admin,banned')
+      .eq('id', user.id)
+      .single();
 
-  if (error || !profile || profile.banned) {
-    await supabase.auth.signOut();
+    if (error || !profile || profile.banned) {
+      await supabase.auth.signOut();
+      mode = 'login';
+      renderAuth();
+      showError(profile?.banned ? 'Your account is banned.' : 'Your profile could not be loaded.');
+      return;
+    }
+
+    me = profile;
+    await loadgroups();
+    render();
+  } catch (e) {
     mode = 'login';
     renderAuth();
-    showError(profile?.banned ? 'Your account is banned.' : 'Your profile could not be loaded.');
-    return;
+    showError(e.message);
   }
-
-  me = profile;
-  await loadgroups();
-  render();
 }
 
 async function loadgroups() {
@@ -383,46 +379,27 @@ async function sendAdmin() {
   else adminChat();
 }
 
-// Immediately show the login form (no dependency on Supabase)
+// Init - show auth immediately, then handle session
 renderAuth();
 
-// Load Supabase from CDN dynamically so it never blocks the UI
-(function () {
-  var s = document.createElement('script');
-  s.src = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2';
-  s.onload = function () {
-    if (!window.supabase) {
-      showError('Supabase library loaded but is unavailable.');
-      return;
-    }
-    try {
-      supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
+supabase.auth.onAuthStateChange((_event, session) => {
+  if (!session && me) {
+    me = null;
+    groups = [];
+    currentId = null;
+    mode = 'login';
+    renderAuth();
+  }
+});
 
-      supabase.auth.onAuthStateChange(function (_event, session) {
-        if (!session && me) {
-          me = null;
-          groups = [];
-          currentId = null;
-          mode = 'login';
-          renderAuth();
-        }
-      });
-
-      supabase.auth.getSession().then(function (res) {
-        if (res.data.session) boot().catch(function (e) {
-          mode = 'login';
-          renderAuth();
-          showError(e.message);
-        });
-      }).catch(function (e) {
-        showError(e.message);
-      });
-    } catch (e) {
-      showError('Supabase client error: ' + e.message);
-    }
-  };
-  s.onerror = function () {
-    showError('Failed to load Supabase from CDN. Check your internet connection or disable ad-blockers.');
-  };
-  document.head.appendChild(s);
-})();
+supabase.auth.getSession().then(({ data }) => {
+  if (data.session) {
+    boot().catch(e => {
+      mode = 'login';
+      renderAuth();
+      showError(e.message);
+    });
+  }
+}).catch(e => {
+  showError(e.message);
+});
