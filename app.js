@@ -386,33 +386,43 @@ async function sendAdmin() {
 // Immediately show the login form (no dependency on Supabase)
 renderAuth();
 
-// Try to connect to Supabase after the UI is already visible
-if (window.supabase) {
-  try {
-    supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
+// Load Supabase from CDN dynamically so it never blocks the UI
+(function () {
+  var s = document.createElement('script');
+  s.src = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2';
+  s.onload = function () {
+    if (!window.supabase) {
+      showError('Supabase library loaded but is unavailable.');
+      return;
+    }
+    try {
+      supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
 
-    supabase.auth.onAuthStateChange((_event, session) => {
-      if (!session && me) {
-        me = null;
-        groups = [];
-        currentId = null;
-        mode = 'login';
-        renderAuth();
-      }
-    });
+      supabase.auth.onAuthStateChange(function (_event, session) {
+        if (!session && me) {
+          me = null;
+          groups = [];
+          currentId = null;
+          mode = 'login';
+          renderAuth();
+        }
+      });
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) boot().catch(e => {
-        mode = 'login';
-        renderAuth();
+      supabase.auth.getSession().then(function (res) {
+        if (res.data.session) boot().catch(function (e) {
+          mode = 'login';
+          renderAuth();
+          showError(e.message);
+        });
+      }).catch(function (e) {
         showError(e.message);
       });
-    }).catch(e => {
-      showError(e.message);
-    });
-  } catch (e) {
-    showError('Supabase client error: ' + e.message);
-  }
-} else {
-  showError('Supabase library failed to load from CDN.');
-}
+    } catch (e) {
+      showError('Supabase client error: ' + e.message);
+    }
+  };
+  s.onerror = function () {
+    showError('Failed to load Supabase from CDN. Check your internet connection or disable ad-blockers.');
+  };
+  document.head.appendChild(s);
+})();
