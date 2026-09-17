@@ -3,7 +3,7 @@ const app = document.getElementById('app');
 const SUPABASE_URL = 'https://uvzcejnzaiiomqppeqcr.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV2emNlam56YWlpb21xcHBlcWNyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc4MTI2NTcsImV4cCI6MjEwMzM4ODY1N30.0e1xFT3aEnH7akjL2MvKmamgC-9vwE-45bkY1Q5B95U';
 
-const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
+let supabase = null;
 let me = null;
 let groups = [];
 let currentId = null;
@@ -32,6 +32,7 @@ function authScreen(mode='login', error=''){
 
 async function login(){
   try{
+    if(!supabase) throw new Error('Supabase failed to load.');
     const email = document.getElementById('email').value.trim();
     const password = document.getElementById('password').value;
     const {error} = await supabase.auth.signInWithPassword({email,password});
@@ -42,6 +43,7 @@ async function login(){
 
 async function signup(){
   try{
+    if(!supabase) throw new Error('Supabase failed to load.');
     const name = document.getElementById('name').value.trim();
     const email = document.getElementById('email').value.trim();
     const password = document.getElementById('password').value;
@@ -62,7 +64,7 @@ async function signup(){
 }
 
 async function logout(){
-  await supabase.auth.signOut();
+  if(supabase) await supabase.auth.signOut();
   me=null; groups=[]; currentId=null;
   authScreen();
 }
@@ -144,6 +146,8 @@ function update(){
   const c = groups.find(x=>x.id===currentId) || groups[0];
   if(!c) return;
   currentId = c.id;
+  const msgs = document.getElementById('msgs');
+  if(!msgs) return;
   msgs.innerHTML = c.messages?.length
     ? c.messages.map(m=>`<div class="msg ${m.role}">
         <div class="av">${m.role==='user'?'You':'AI'}</div>
@@ -178,6 +182,7 @@ function selectChat(id){ currentId=id; update(); }
 function key(e){ if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send();} }
 
 async function send(){
+  const input = document.getElementById('input');
   const text = input.value.trim();
   if(!text) return;
   input.value='';
@@ -188,7 +193,6 @@ async function send(){
   if(c.title==='New chat') c.title=text.slice(0,40);
   update();
 
-  const oldSend = input.disabled;
   input.disabled = true;
 
   try{
@@ -213,7 +217,7 @@ async function send(){
     c.messages.push({role:'assistant',text:`Error: ${e.message}`});
     update();
   }finally{
-    input.disabled=oldSend;
+    input.disabled=false;
     input.focus();
   }
 }
@@ -223,28 +227,22 @@ async function adminPanel(){
     const {data,error}=await supabase
       .from('accounts')
       .select('id,name,email,is_admin,banned,created_at')
-      .order('created_at',{ascending:true});
+      .order('created_at',{ascending:false});
     if(error) throw error;
 
     app.innerHTML=`<div class="app">
-      <header class="top">
-        <div class="logo">ChatHub</div><div class="spacer"></div>
-        <strong>ADMIN</strong>
-        <button class="back" onclick="render()">Chat</button>
-        <button class="back" onclick="adminChat()">Admin Chat</button>
-        <button class="logout" onclick="logout()">Log out</button>
-      </header>
-      <section class="admin">
-        <h1>Admin Panel</h1>
-        <p class="small">Manage accounts and administrator access.</p>
-        <div class="stats">
-          <div class="stat">Users<h2>${data.length}</h2></div>
-          <div class="stat">Admins<h2>${data.filter(u=>u.is_admin).length}</h2></div>
-          <div class="stat">Banned<h2>${data.filter(u=>u.banned).length}</h2></div>
-        </div>
-        <div class="panel"><h2>Users</h2>
-          ${data.map(u=>`<div class="userrow">
-            <div><strong>${esc(u.name)}</strong><br><span class="small">${esc(u.email)} · ${u.banned?'BANNED':u.is_admin?'ADMIN':'User'}</span></div>
+      <header class="top"><div class="logo">ChatHub</div><div class="spacer"></div><strong>ADMIN</strong>
+      <button class="back" onclick="adminChat()">Admin Chat</button>
+      <button class="back" onclick="render()">Chat</button>
+      <button class="logout" onclick="logout()">Log out</button></header>
+      <section class="admin"><h1>Users</h1>
+        <div class="panel">
+          ${(data||[]).map(u=>`
+          <div class="userrow">
+            <div>
+              <b>${esc(u.name)}</b> <span class="role ${u.is_admin?'admin':''}">${u.is_admin?'admin':'user'}</span>
+              <div class="small">${esc(u.email)} · ${u.banned?'BANNED':''}</div>
+            </div>
             <div class="actions">
               <button class="${u.is_admin?'demote':'promote'}" onclick="toggleAdmin('${u.id}',${!u.is_admin})">${u.is_admin?'Remove admin':'Promote admin'}</button>
               <button class="${u.banned?'unban':'ban'}" onclick="toggleBan('${u.id}',${!u.banned})">${u.banned?'Unban':'Ban'}</button>
@@ -293,17 +291,36 @@ async function adminChat(){
 }
 
 async function sendAdmin(){
+  const admininput = document.getElementById('admininput');
   const text=admininput.value.trim();
   if(!text) return;
   const {error}=await supabase.from('admin_messages').insert({user_id:me.id,name:me.name,text});
   if(error) alert(error.message); else adminChat();
 }
 
-supabase.auth.onAuthStateChange((_event,session)=>{
-  if(!session && me) { me=null; groups=[]; currentId=null; authScreen(); }
-});
+function start(){
+  try{
+    if(!window.supabase){
+      authScreen('login','Supabase library failed to load. Check your network or CDN.');
+      return;
+    }
+    supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
 
-(async()=>{
-  const {data:{session}}=await supabase.auth.getSession();
-  if(session) await boot(); else authScreen();
-})();
+    supabase.auth.onAuthStateChange((_event,session)=>{
+      if(!session && me){ me=null; groups=[]; currentId=null; authScreen(); }
+    });
+
+    (async()=>{
+      try{
+        const {data:{session}}=await supabase.auth.getSession();
+        if(session) await boot(); else authScreen();
+      }catch(e){
+        authScreen('login', e.message || 'Failed to start.');
+      }
+    })();
+  }catch(e){
+    authScreen('login', e.message || 'Failed to start.');
+  }
+}
+
+start();
